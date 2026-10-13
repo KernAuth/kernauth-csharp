@@ -1,6 +1,6 @@
 # KernAuth C# example
 
-Protocol example for .NET 8. This is not the official SDK. The official client is the C++ SDK. This file calls the same activate, validate, and deactivate routes and checks the Ed25519 signature with BouncyCastle.
+Protocol example for .NET 8. This is not the official SDK. The official client is the C++ SDK. This file calls validate and checks the Ed25519 signature with BouncyCastle.
 
 ## Add it
 
@@ -22,14 +22,6 @@ var app = new KernAuth(
     "__PUBLIC_KEY__");
 ```
 
-## Activate
-
-```csharp
-if (!await app.Activate(license, installation)) {
-    throw new Exception(app.Message);
-}
-```
-
 ## Validate
 
 ```csharp
@@ -37,16 +29,6 @@ if (!await app.Validate(license, installation)) {
     throw new Exception(app.Message);
 }
 ```
-
-## Deactivate
-
-```csharp
-if (!await app.Deactivate(license, installation)) {
-    throw new Exception(app.Message);
-}
-```
-
-`app.Message` is `Device deactivated` after a successful deactivate.
 
 A patched program can still skip the check. These examples do not add anti-debug or anti-VM code.
 

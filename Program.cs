@@ -17,7 +17,7 @@ if (args.Contains("--test-vectors")) {
 var license = Environment.GetEnvironmentVariable("KERN_LICENSE_KEY") ?? throw new Exception("Set KERN_LICENSE_KEY");
 var installation = Environment.GetEnvironmentVariable("KERN_INSTALLATION_ID") ?? throw new Exception("Set KERN_INSTALLATION_ID");
 var app = new KernAuth(Api, AppId, KeyId, PublicKey);
-if (!await app.Activate(license, installation) || !await app.Validate(license, installation) || !await app.Deactivate(license, installation)) {
+if (!await app.Validate(license, installation)) {
   throw new Exception(app.Message);
 }
 Console.WriteLine(app.Message);
@@ -67,9 +67,7 @@ sealed class KernAuth {
     PublicKey = publicKey;
   }
 
-  public Task<bool> Activate(string license, string installation) => Call("activate", license, installation, "License is active");
   public Task<bool> Validate(string license, string installation) => Call("validate", license, installation, "License is active");
-  public Task<bool> Deactivate(string license, string installation) => Call("deactivate", license, installation, "Device deactivated");
 
   async Task<bool> Call(string mode, string license, string installation, string okMessage) {
     try {
@@ -94,9 +92,7 @@ sealed class KernAuth {
       new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
     response.EnsureSuccessStatusCode();
     using var parsed = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-    if (mode == "deactivate") {
-      if (!parsed.RootElement.GetProperty("deactivated").GetBoolean()) throw new Exception("Deactivation not confirmed");
-    } else if (!Verify(parsed.RootElement, nonce, AppId, KeyId, PublicKey, DateTimeOffset.UtcNow)) {
+    if (!Verify(parsed.RootElement, nonce, AppId, KeyId, PublicKey, DateTimeOffset.UtcNow)) {
       throw new Exception("Invalid or expired signed entitlement");
     }
   }
