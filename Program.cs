@@ -1,4 +1,3 @@
-// Protocol example: dotnet run --project apps/web/src/examples/csharp
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +10,19 @@ const string KeyId = "__KEY_ID__";
 const string PublicKey = "__PUBLIC_KEY__";
 
 if (args.Contains("--test-vectors")) {
+  Vectors();
+  return;
+}
+
+var license = Environment.GetEnvironmentVariable("KERN_LICENSE_KEY") ?? throw new Exception("Set KERN_LICENSE_KEY");
+var installation = Environment.GetEnvironmentVariable("KERN_INSTALLATION_ID") ?? throw new Exception("Set KERN_INSTALLATION_ID");
+var app = new KernAuth(Api, AppId, KeyId, PublicKey);
+if (!await app.Activate(license, installation) || !await app.Validate(license, installation) || !await app.Deactivate(license, installation)) {
+  throw new Exception(app.Message);
+}
+Console.WriteLine(app.Message);
+
+void Vectors() {
   var path = Path.GetFullPath("vectors.json");
   using var fixture = JsonDocument.Parse(File.ReadAllText(path));
   foreach (var vector in fixture.RootElement.GetProperty("vectors").EnumerateArray()) {
@@ -20,29 +32,21 @@ if (args.Contains("--test-vectors")) {
       entitlement = ent, signature = vector.GetProperty("signature").GetString()
     }));
     var nonce = ent.GetProperty("nonce").GetString()!;
-    var app = ent.GetProperty("application_id").GetString()!;
+    var name = ent.GetProperty("application_id").GetString()!;
     var key = ent.GetProperty("key_id").GetString()!;
     var publicKey = vector.GetProperty("public_key").GetString()!;
     var now = DateTimeOffset.Parse("2026-01-01T00:01:00Z");
-    if (!KernAuth.Verify(grant.RootElement, nonce, app, key, publicKey, now) ||
-        KernAuth.Verify(grant.RootElement, "wrong", app, key, publicKey, now) ||
+    if (!KernAuth.Verify(grant.RootElement, nonce, name, key, publicKey, now) ||
+        KernAuth.Verify(grant.RootElement, "wrong", name, key, publicKey, now) ||
         KernAuth.Verify(grant.RootElement, nonce, "pub_other_app", key, publicKey, now) ||
-        KernAuth.Verify(grant.RootElement, nonce, app, "wrong-key", publicKey, now) ||
-        KernAuth.Verify(grant.RootElement, nonce, app, key, publicKey, now.AddMinutes(20))) throw new Exception("Vector verification failed");
+        KernAuth.Verify(grant.RootElement, nonce, name, "wrong-key", publicKey, now) ||
+        KernAuth.Verify(grant.RootElement, nonce, name, key, publicKey, now.AddMinutes(20))) throw new Exception("Vector verification failed");
     using var forged = JsonDocument.Parse(JsonSerializer.Serialize(new {
       entitlement = ent, signature = vector.GetProperty("signature").GetString() + "AA"
     }));
-    if (KernAuth.Verify(forged.RootElement, nonce, app, key, publicKey, now)) throw new Exception("Bad signature accepted");
+    if (KernAuth.Verify(forged.RootElement, nonce, name, key, publicKey, now)) throw new Exception("Bad signature accepted");
   }
   Console.WriteLine("C# vectors passed");
-} else {
-  var license = Environment.GetEnvironmentVariable("KERN_LICENSE_KEY") ?? throw new Exception("Set KERN_LICENSE_KEY");
-  var installation = Environment.GetEnvironmentVariable("KERN_INSTALLATION_ID") ?? throw new Exception("Set KERN_INSTALLATION_ID");
-  var app = new KernAuth(Api, AppId, KeyId, PublicKey);
-  if (!await app.Activate(license, installation) || !await app.Validate(license, installation) || !await app.Deactivate(license, installation)) {
-    throw new Exception(app.Message);
-  }
-  Console.WriteLine(app.Message);
 }
 
 sealed class KernAuth {
