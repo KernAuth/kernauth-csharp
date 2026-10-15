@@ -14,13 +14,24 @@ if (args.Contains("--test-vectors")) {
 }
 
 var app = new KernAuth(Api, AppId, PublicKey);
-if (!await app.Validate(LicenseKey(), InstallationId())) {
+var key = LicenseKey();
+var hwid = InstallationId();
+if (!await app.Validate(key, hwid)) {
   throw new Exception(app.Message);
 }
 Console.WriteLine($"Status: {app.Status}");
 Console.WriteLine($"Features: {app.Features}");
 Console.WriteLine($"License: {app.LicenseId}");
 Console.WriteLine($"Check expires: {app.ExpiresAt}");
+while (true) {
+  await Task.Delay(TimeSpan.FromSeconds(60));
+  try {
+    await app.Heartbeat(key, hwid);
+  } catch (Exception error) {
+    Console.WriteLine(error.Message);
+    Environment.Exit(1);
+  }
+}
 
 static string LicenseKey() {
   var fromEnv = Environment.GetEnvironmentVariable("KERN_LICENSE_KEY");
@@ -108,6 +119,36 @@ sealed class KernAuth {
 
   public Task<bool> Validate(string license, string installation) => Call("validate", license, installation, "License is active");
 
+  public async Task Heartbeat(string license, string installation) {
+    var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+    var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"kernauth-device-v1:{installation}"))).ToLowerInvariant();
+    var body = new { protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
+      fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = installation, nonce };
+    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    using var response = await client.PostAsync($"{Api}/v1/client/heartbeat",
+      new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
+    var text = await response.Content.ReadAsStringAsync();
+    if (!response.IsSuccessStatusCode) throw new Exception(ApiMessage(text, $"heartbeat failed ({(int)response.StatusCode})"));
+    using var parsed = JsonDocument.Parse(text);
+    if (!parsed.RootElement.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True) {
+      throw new Exception("heartbeat failed");
+    }
+  }
+
+  static string ApiMessage(string raw, string fallback) {
+    try {
+      using var parsed = JsonDocument.Parse(raw);
+      if (parsed.RootElement.TryGetProperty("error", out var error) &&
+          error.TryGetProperty("message", out var message) &&
+          message.ValueKind == JsonValueKind.String &&
+          !string.IsNullOrWhiteSpace(message.GetString())) {
+        return message.GetString()!;
+      }
+    } catch (JsonException) {
+    }
+    return fallback;
+  }
+
   async Task<bool> Call(string mode, string license, string installation, string okMessage) {
     try {
       await Post(mode, license, installation);
@@ -129,8 +170,9 @@ sealed class KernAuth {
     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     using var response = await client.PostAsync($"{Api}/v1/client/{mode}",
       new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
-    response.EnsureSuccessStatusCode();
-    using var parsed = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+    var text = await response.Content.ReadAsStringAsync();
+    if (!response.IsSuccessStatusCode) throw new Exception(ApiMessage(text, $"{mode} failed ({(int)response.StatusCode})"));
+    using var parsed = JsonDocument.Parse(text);
     if (!Verify(parsed.RootElement, nonce, AppId, PublicKey, DateTimeOffset.UtcNow)) {
       throw new Exception("Invalid or expired signed entitlement");
     }
