@@ -14,13 +14,34 @@ if (args.Contains("--test-vectors")) {
   return;
 }
 
-var license = Environment.GetEnvironmentVariable("KERN_LICENSE_KEY") ?? throw new Exception("Set KERN_LICENSE_KEY");
-var installation = Environment.GetEnvironmentVariable("KERN_INSTALLATION_ID") ?? throw new Exception("Set KERN_INSTALLATION_ID");
 var app = new KernAuth(Api, AppId, KeyId, PublicKey);
-if (!await app.Validate(license, installation)) {
+if (!await app.Validate(LicenseKey(), InstallationId())) {
   throw new Exception(app.Message);
 }
-Console.WriteLine(app.Message);
+Console.WriteLine($"Status: {app.Status}");
+Console.WriteLine($"Features: {app.Features}");
+Console.WriteLine($"License: {app.LicenseId}");
+Console.WriteLine($"Check expires: {app.ExpiresAt}");
+
+static string LicenseKey() {
+  var fromEnv = Environment.GetEnvironmentVariable("KERN_LICENSE_KEY");
+  if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv.Trim();
+  if (!Console.IsInputRedirected) Console.Write("Enter license: ");
+  return (Console.ReadLine() ?? "").Trim();
+}
+
+static string InstallationId() {
+  var fromEnv = Environment.GetEnvironmentVariable("KERN_INSTALLATION_ID");
+  if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv.Trim();
+  const string name = "kernauth-install";
+  if (File.Exists(name)) {
+    var saved = File.ReadAllText(name).Trim();
+    if (saved.Length > 0) return saved;
+  }
+  var created = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+  File.WriteAllText(name, created + "\n");
+  return created;
+}
 
 void Vectors() {
   var path = Path.GetFullPath("vectors.json");
@@ -59,6 +80,10 @@ sealed class KernAuth {
   public string PublicKey { get; }
   public bool Success { get; private set; }
   public string Message { get; private set; } = "";
+  public string Status { get; private set; } = "";
+  public string Features { get; private set; } = "";
+  public string LicenseId { get; private set; } = "";
+  public string ExpiresAt { get; private set; } = "";
 
   public KernAuth(string api, string appId, string keyId, string publicKey) {
     Api = api;
@@ -95,6 +120,13 @@ sealed class KernAuth {
     if (!Verify(parsed.RootElement, nonce, AppId, KeyId, PublicKey, DateTimeOffset.UtcNow)) {
       throw new Exception("Invalid or expired signed entitlement");
     }
+    var ent = parsed.RootElement.GetProperty("entitlement");
+    Status = ent.GetProperty("status").GetString() ?? "";
+    var feature = ent.GetProperty("features");
+    Features = CanonicalFeatures(feature.ValueKind == JsonValueKind.String
+      ? JsonDocument.Parse(feature.GetString()!).RootElement : feature);
+    LicenseId = ent.GetProperty("license_id").GetString() ?? "";
+    ExpiresAt = ent.GetProperty("expires_at").GetString() ?? "";
   }
 
   public static byte[] Canonical(JsonElement entitlement) {
