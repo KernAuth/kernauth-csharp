@@ -1,6 +1,6 @@
 # KernAuth C# example
 
-Paste the public app ID, key ID, and public key from Developers into `Program.cs`. .NET 8, with BouncyCastle.Cryptography.
+Paste the public app ID and public key from Developers into `Program.cs`. .NET 8, with BouncyCastle.Cryptography.
 
 ## Instance
 
@@ -8,7 +8,6 @@ Paste the public app ID, key ID, and public key from Developers into `Program.cs
 var app = new KernAuth(
     "https://api.kernauth.com",
     "__PUBLIC_APP_ID__",
-    "__KEY_ID__",
     "__PUBLIC_KEY__");
 ```
 

@@ -6,7 +6,6 @@ using Org.BouncyCastle.Crypto.Signers;
 
 const string Api = "https://api.kernauth.com";
 const string AppId = "__PUBLIC_APP_ID__";
-const string KeyId = "__KEY_ID__";
 const string PublicKey = "__PUBLIC_KEY__";
 
 if (args.Contains("--test-vectors")) {
@@ -14,7 +13,7 @@ if (args.Contains("--test-vectors")) {
   return;
 }
 
-var app = new KernAuth(Api, AppId, KeyId, PublicKey);
+var app = new KernAuth(Api, AppId, PublicKey);
 if (!await app.Validate(LicenseKey(), InstallationId())) {
   throw new Exception(app.Message);
 }
@@ -73,18 +72,16 @@ void Vectors() {
     }));
     var nonce = ent.GetProperty("nonce").GetString()!;
     var name = ent.GetProperty("application_id").GetString()!;
-    var key = ent.GetProperty("key_id").GetString()!;
     var publicKey = vector.GetProperty("public_key").GetString()!;
     var now = DateTimeOffset.Parse("2026-01-01T00:01:00Z");
-    if (!KernAuth.Verify(grant.RootElement, nonce, name, key, publicKey, now) ||
-        KernAuth.Verify(grant.RootElement, "wrong", name, key, publicKey, now) ||
-        KernAuth.Verify(grant.RootElement, nonce, "pub_other_app", key, publicKey, now) ||
-        KernAuth.Verify(grant.RootElement, nonce, name, "wrong-key", publicKey, now) ||
-        KernAuth.Verify(grant.RootElement, nonce, name, key, publicKey, now.AddMinutes(20))) throw new Exception("Vector verification failed");
+    if (!KernAuth.Verify(grant.RootElement, nonce, name, publicKey, now) ||
+        KernAuth.Verify(grant.RootElement, "wrong", name, publicKey, now) ||
+        KernAuth.Verify(grant.RootElement, nonce, "pub_other_app", publicKey, now) ||
+        KernAuth.Verify(grant.RootElement, nonce, name, publicKey, now.AddMinutes(20))) throw new Exception("Vector verification failed");
     using var forged = JsonDocument.Parse(JsonSerializer.Serialize(new {
       entitlement = ent, signature = vector.GetProperty("signature").GetString() + "AA"
     }));
-    if (KernAuth.Verify(forged.RootElement, nonce, name, key, publicKey, now)) throw new Exception("Bad signature accepted");
+    if (KernAuth.Verify(forged.RootElement, nonce, name, publicKey, now)) throw new Exception("Bad signature accepted");
   }
   Console.WriteLine("C# vectors passed");
 }
@@ -95,7 +92,6 @@ sealed class KernAuth {
 
   public string Api { get; }
   public string AppId { get; }
-  public string KeyId { get; }
   public string PublicKey { get; }
   public bool Success { get; private set; }
   public string Message { get; private set; } = "";
@@ -104,10 +100,9 @@ sealed class KernAuth {
   public string LicenseId { get; private set; } = "";
   public string ExpiresAt { get; private set; } = "";
 
-  public KernAuth(string api, string appId, string keyId, string publicKey) {
+  public KernAuth(string api, string appId, string publicKey) {
     Api = api;
     AppId = appId;
-    KeyId = keyId;
     PublicKey = publicKey;
   }
 
@@ -136,7 +131,7 @@ sealed class KernAuth {
       new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
     response.EnsureSuccessStatusCode();
     using var parsed = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-    if (!Verify(parsed.RootElement, nonce, AppId, KeyId, PublicKey, DateTimeOffset.UtcNow)) {
+    if (!Verify(parsed.RootElement, nonce, AppId, PublicKey, DateTimeOffset.UtcNow)) {
       throw new Exception("Invalid or expired signed entitlement");
     }
     var ent = parsed.RootElement.GetProperty("entitlement");
@@ -183,13 +178,12 @@ sealed class KernAuth {
     } else element.WriteTo(writer);
   }
 
-  public static bool Verify(JsonElement grant, string nonce, string expectedApp, string expectedKey, string pinnedKey, DateTimeOffset now) {
+  public static bool Verify(JsonElement grant, string nonce, string expectedApp, string pinnedKey, DateTimeOffset now) {
     try {
       var ent = grant.GetProperty("entitlement");
       if (ent.GetProperty("protocol_version").GetInt32() != 1 ||
           ent.GetProperty("nonce").GetString() != nonce ||
           ent.GetProperty("application_id").GetString() != expectedApp ||
-          ent.GetProperty("key_id").GetString() != expectedKey ||
           ent.GetProperty("status").GetString() != "active" ||
           DateTimeOffset.Parse(ent.GetProperty("expires_at").GetString()!) <= now) return false;
       var key = new Ed25519PublicKeyParameters(Convert.FromBase64String(pinnedKey), 0);
