@@ -1,6 +1,6 @@
 # KernAuth C# example
 
-Protocol example for .NET 8. This is not the official SDK. The official client is the C++ SDK. This file calls validate and checks the Ed25519 signature with BouncyCastle.
+Example for .NET 8. This file calls validate and checks the Ed25519 signature with BouncyCastle.
 
 ## Add it
 
