@@ -33,14 +33,33 @@ static string LicenseKey() {
 static string InstallationId() {
   var fromEnv = Environment.GetEnvironmentVariable("KERN_INSTALLATION_ID");
   if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv.Trim();
-  const string name = "kernauth-install";
-  if (File.Exists(name)) {
-    var saved = File.ReadAllText(name).Trim();
-    if (saved.Length > 0) return saved;
+  var hwid = MachineHwid().Trim();
+  if (AcceptableHwid(hwid)) return hwid;
+  throw new Exception("Could not read the HWID");
+}
+
+static bool AcceptableHwid(string value) {
+  if (value.Length is < 8 or > 64) return false;
+  foreach (var cell in value) {
+    if (cell is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_' or '-') continue;
+    return false;
   }
-  var created = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-  File.WriteAllText(name, created + "\n");
-  return created;
+  return true;
+}
+
+static string MachineHwid() {
+  if (OperatingSystem.IsWindows()) return System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? "";
+  if (OperatingSystem.IsLinux()) return File.ReadAllText("/etc/machine-id");
+  if (!OperatingSystem.IsMacOS()) return "";
+  var output = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+    FileName = "ioreg", Arguments = "-rd1 -c IOPlatformExpertDevice", RedirectStandardOutput = true, UseShellExecute = false
+  })?.StandardOutput.ReadToEnd() ?? "";
+  var marker = "\"IOPlatformUUID\" = \"";
+  var start = output.IndexOf(marker, StringComparison.Ordinal);
+  if (start < 0) return "";
+  start += marker.Length;
+  var end = output.IndexOf('"', start);
+  return end < 0 ? "" : output[start..end];
 }
 
 void Vectors() {
