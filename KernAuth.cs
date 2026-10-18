@@ -128,7 +128,7 @@ sealed class KernAuth {
     var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
     var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"kernauth-device-v1:{bound}"))).ToLowerInvariant();
     var body = new { protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
-      fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound, nonce };
+      save_hwid = true, fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound, nonce };
     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     using var response = await client.PostAsync($"{Api}/v1/client/{mode}",
       new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
