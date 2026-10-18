@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 
 if (args.Contains("--test-vectors")) {
@@ -12,16 +13,14 @@ if (!await app.Validate(key)) {
   Environment.Exit(1);
 }
 using var features = JsonDocument.Parse(app.Features);
-if (!features.RootElement.TryGetProperty("payload_key", out var payloadKey)
-    || payloadKey.ValueKind != JsonValueKind.String
-    || string.IsNullOrEmpty(payloadKey.GetString())) {
-  Console.WriteLine("Payload key is missing");
+if (!TryUnwrap(features.RootElement, out var payloadKey)) {
+  Console.WriteLine("The payload key could not open this build.");
   Environment.Exit(1);
 }
-// Decrypt the program with this key. Drop it when the heartbeat fails.
+CryptographicOperations.ZeroMemory(payloadKey);
+// Decrypt the program with the opened key. Drop it when the heartbeat fails.
+Console.WriteLine("Payload opened");
 Console.WriteLine($"Status: {app.Status}");
-Console.WriteLine($"Features: {app.Features}");
-Console.WriteLine($"Payload key: {payloadKey.GetString()}");
 Console.WriteLine($"License: {app.LicenseId}");
 Console.WriteLine($"Check expires: {app.ExpiresAt}");
 while (true) {
@@ -31,6 +30,30 @@ while (true) {
   } catch (Exception error) {
     Console.WriteLine(error.Message);
     Environment.Exit(1);
+  }
+}
+
+static bool TryUnwrap(JsonElement features, out byte[] payloadKey) {
+  payloadKey = Array.Empty<byte>();
+  if (!features.TryGetProperty("wrap_key", out var wrapKeyElement)
+      || !features.TryGetProperty("payload_box", out var boxElement)
+      || wrapKeyElement.ValueKind != JsonValueKind.String
+      || boxElement.ValueKind != JsonValueKind.String) {
+    return false;
+  }
+  try {
+    var wrapKey = Convert.FromBase64String(wrapKeyElement.GetString() ?? "");
+    var box = Convert.FromBase64String(boxElement.GetString() ?? "");
+    if (wrapKey.Length != 32 || box.Length <= 28) return false;
+    var nonce = box.AsSpan(0, 12);
+    var cipher = box.AsSpan(12, box.Length - 28);
+    var tag = box.AsSpan(box.Length - 16);
+    payloadKey = new byte[cipher.Length];
+    using var aes = new AesGcm(wrapKey, 16);
+    aes.Decrypt(nonce, cipher, tag, payloadKey);
+    return payloadKey.Length > 0;
+  } catch (Exception) {
+    return false;
   }
 }
 
