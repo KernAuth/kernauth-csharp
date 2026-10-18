@@ -28,6 +28,10 @@ sealed class KernAuth {
 
   public Task<bool> Validate(string license) => Call("validate", license, "License is active");
 
+  public void WipeFeatures() {
+    Features = "";
+  }
+
   public async Task Heartbeat(string license) {
     var bound = Installation();
     var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
