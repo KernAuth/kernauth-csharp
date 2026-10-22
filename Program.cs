@@ -4,6 +4,10 @@ if (args.Contains("--test-vectors")) {
 }
 
 var app = new KernAuth("https://api.kernauth.com", "__PUBLIC_APP_ID__", "__PUBLIC_KEY__");
+if (!await app.Initialize()) {
+  Console.WriteLine(app.Message);
+  Environment.Exit(1);
+}
 var key = LicenseKey();
 if (!await app.Validate(key)) {
   Console.WriteLine(app.Message);

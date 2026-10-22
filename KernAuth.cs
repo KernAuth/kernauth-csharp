@@ -19,11 +19,26 @@ sealed class KernAuth {
   public string LicenseId { get; private set; } = "";
   public string ExpiresAt { get; private set; } = "";
   string? installation;
+  string? sessionSalt;
+  string? timeBucket;
 
   public KernAuth(string api, string appId, string publicKey) {
     Api = api;
     AppId = appId;
     PublicKey = publicKey;
+  }
+
+  public async Task<bool> Initialize() {
+    try {
+      await PostInitialize();
+      Success = true;
+      Message = "Session ready";
+      return true;
+    } catch (Exception error) {
+      Success = false;
+      Message = error.Message;
+      return false;
+    }
   }
 
   public Task<bool> Validate(string license) => Call("validate", license, "License is active");
@@ -127,12 +142,49 @@ sealed class KernAuth {
     }
   }
 
+  async Task PostInitialize() {
+    var bound = Installation();
+    sessionSalt = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+    timeBucket = null;
+    var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+    var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"kernauth-device-v1:{bound}"))).ToLowerInvariant();
+    var body = new {
+      protocol_version = 1, public_app_id = AppId, client_version = "1.0.0",
+      fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound,
+      session_salt = sessionSalt, nonce,
+    };
+    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    using var response = await client.PostAsync($"{Api}/v1/client/initialize",
+      new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
+    var text = await response.Content.ReadAsStringAsync();
+    if (!response.IsSuccessStatusCode) throw new Exception(ApiMessage(text, $"initialize failed ({(int)response.StatusCode})"));
+    using var parsed = JsonDocument.Parse(text);
+    if (!parsed.RootElement.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True ||
+        !parsed.RootElement.TryGetProperty("time_bucket", out var bucket) ||
+        bucket.ValueKind != JsonValueKind.String ||
+        string.IsNullOrWhiteSpace(bucket.GetString())) {
+      throw new Exception("Initialize response was incomplete");
+    }
+    timeBucket = bucket.GetString();
+  }
+
   async Task Post(string mode, string license) {
+    if (mode == "validate" && (sessionSalt == null || timeBucket == null)) {
+      throw new Exception("Call Initialize first");
+    }
     var bound = Installation();
     var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
     var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"kernauth-device-v1:{bound}"))).ToLowerInvariant();
-    var body = new { protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
-      save_hwid = true, fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound, nonce };
+    object body = mode == "validate"
+      ? new {
+          protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
+          save_hwid = true, fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound,
+          session_salt = sessionSalt, time_bucket = timeBucket, nonce,
+        }
+      : new {
+          protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
+          save_hwid = true, fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound, nonce,
+        };
     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     using var response = await client.PostAsync($"{Api}/v1/client/{mode}",
       new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
