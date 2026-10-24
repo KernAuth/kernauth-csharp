@@ -18,14 +18,16 @@ sealed class KernAuth {
   public string Features { get; private set; } = "";
   public string LicenseId { get; private set; } = "";
   public string ExpiresAt { get; private set; } = "";
+  public string Version { get; }
   string? installation;
   string? sessionSalt;
   string? timeBucket;
 
-  public KernAuth(string api, string appId, string publicKey) {
+  public KernAuth(string api, string appId, string publicKey, string version = "") {
     Api = api;
     AppId = appId;
     PublicKey = publicKey;
+    Version = string.IsNullOrWhiteSpace(version) ? "1.0.0" : version;
   }
 
   public async Task<bool> Initialize() {
@@ -51,7 +53,7 @@ sealed class KernAuth {
     var bound = Installation();
     var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
     var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"kernauth-device-v1:{bound}"))).ToLowerInvariant();
-    var body = new { protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
+    var body = new { protocol_version = 1, public_app_id = AppId, client_version = Version, license_key = license,
       fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound, nonce };
     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     using var response = await client.PostAsync($"{Api}/v1/client/heartbeat",
@@ -149,7 +151,7 @@ sealed class KernAuth {
     var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
     var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"kernauth-device-v1:{bound}"))).ToLowerInvariant();
     var body = new {
-      protocol_version = 1, public_app_id = AppId, client_version = "1.0.0",
+      protocol_version = 1, public_app_id = AppId, client_version = Version,
       fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound,
       session_salt = sessionSalt, nonce,
     };
@@ -177,12 +179,12 @@ sealed class KernAuth {
     var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"kernauth-device-v1:{bound}"))).ToLowerInvariant();
     object body = mode == "validate"
       ? new {
-          protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
+          protocol_version = 1, public_app_id = AppId, client_version = Version, license_key = license,
           save_hwid = true, fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound,
           session_salt = sessionSalt, time_bucket = timeBucket, nonce,
         }
       : new {
-          protocol_version = 1, public_app_id = AppId, client_version = "1.0.0", license_key = license,
+          protocol_version = 1, public_app_id = AppId, client_version = Version, license_key = license,
           save_hwid = true, fingerprint_version = 1, device_fingerprint = fingerprint, installation_id = bound, nonce,
         };
     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
